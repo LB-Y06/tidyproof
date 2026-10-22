@@ -1,5 +1,5 @@
 import Papa from "papaparse";
-import type { CsvTable } from "./types";
+import type { DataFormat, DataTable } from "./types";
 
 export function decodeCsvBytes(input: ArrayBuffer): string {
   const bytes = new Uint8Array(input);
@@ -24,30 +24,23 @@ export function csvWithBom(text: string): string {
   return `\uFEFF${text}`;
 }
 
-export function parseCsv(text: string, fileName = "uploaded.csv"): CsvTable {
-  const normalized = text.replace(/^\uFEFF/, "");
-  if (normalized.trim() === "") {
-    throw new Error("This file does not contain any rows.");
+export function tableFromMatrix(
+  matrix: unknown[][],
+  fileName: string,
+  sourceFormat: DataFormat,
+  sheetName?: string,
+): DataTable {
+  const rows = matrix.map((row) => row.map((cell) => String(cell ?? "")));
+  while (rows.length > 0 && rows.at(-1)?.every((cell) => cell.trim() === "")) rows.pop();
+  while (rows.length > 0 && rows[0].every((cell) => cell.trim() === "")) rows.shift();
+  if (rows.length === 0) throw new Error("This file does not contain any rows.");
+
+  const width = Math.max(...rows.map((row) => row.length));
+  while (width > 0 && rows.every((row) => (row[width - 1] ?? "").trim() === "")) {
+    rows.forEach((row) => row.splice(width - 1, 1));
   }
 
-  const parsed = Papa.parse<string[]>(normalized, {
-    skipEmptyLines: "greedy",
-  });
-
-  if (parsed.errors.length > 0 && parsed.data.length <= 1) {
-    throw new Error(parsed.errors[0].message);
-  }
-
-  const nonEmptyRows = parsed.data.filter((row) => row.some((cell) => String(cell).trim()));
-  if (nonEmptyRows.length === 0) {
-    throw new Error("This file does not contain any rows.");
-  }
-
-  const headers = nonEmptyRows[0].map((header, index) => {
-    const cleaned = String(header ?? "").trim();
-    return cleaned || `column_${index + 1}`;
-  });
-
+  const headers = rows[0].map((header, index) => header.trim() || `column_${index + 1}`);
   const seen = new Map<string, number>();
   const uniqueHeaders = headers.map((header) => {
     const count = (seen.get(header) ?? 0) + 1;
@@ -55,13 +48,38 @@ export function parseCsv(text: string, fileName = "uploaded.csv"): CsvTable {
     return count === 1 ? header : `${header}_${count}`;
   });
 
-  const rows = nonEmptyRows.slice(1).map((row) =>
-    uniqueHeaders.map((_, index) => String(row[index] ?? "")),
-  );
-
   return {
     fileName,
     headers: uniqueHeaders,
-    rows,
+    rows: rows.slice(1).map((row) => uniqueHeaders.map((_, index) => row[index] ?? "")),
+    sourceFormat,
+    sheetName,
   };
+}
+
+export function parseCsv(
+  text: string,
+  fileName = "uploaded.csv",
+  options: { delimiter?: string; sourceFormat?: DataFormat; sheetName?: string } = {},
+): DataTable {
+  const normalized = text.replace(/^\uFEFF/, "");
+  if (normalized.trim() === "") {
+    throw new Error("This file does not contain any rows.");
+  }
+
+  const parsed = Papa.parse<string[]>(normalized, {
+    skipEmptyLines: "greedy",
+    delimiter: options.delimiter,
+  });
+
+  if (parsed.errors.length > 0 && parsed.data.length <= 1) {
+    throw new Error(parsed.errors[0].message);
+  }
+
+  return tableFromMatrix(
+    parsed.data.filter((row) => row.some((cell) => String(cell).trim())),
+    fileName,
+    options.sourceFormat ?? "csv",
+    options.sheetName,
+  );
 }

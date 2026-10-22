@@ -2,10 +2,19 @@ export type ColumnKind = "number" | "date" | "boolean" | "text" | "empty";
 
 export type Severity = "high" | "medium" | "low";
 
-export interface CsvTable {
+export type DataFormat = "csv" | "tsv" | "txt" | "json" | "xlsx" | "xlsm" | "xls" | "xlsb" | "ods";
+
+export interface DataTable {
   fileName: string;
   headers: string[];
   rows: string[][];
+  sourceFormat: DataFormat;
+  sheetName?: string;
+}
+
+export interface DataFile {
+  fileName: string;
+  sheets: DataTable[];
 }
 
 export interface QualityIssue {

@@ -19,7 +19,6 @@ import {
   Upload,
   X,
 } from "lucide-react";
-import Papa from "papaparse";
 import {
   useMemo,
   useRef,
@@ -29,15 +28,17 @@ import {
   type DragEvent,
   type ReactNode,
 } from "react";
-import { csvWithBom, decodeCsvBytes, parseCsv } from "./lib/csv";
+import { parseCsv } from "./lib/csv";
 import { demoTable, sampleCsv } from "./lib/demo";
+import { FILE_ACCEPT, cleanOutputLabel, createCleanFile, parseDataFile } from "./lib/files";
 import { analyzeTable, cleanTable, getScoreLabel } from "./lib/quality";
 import type {
   Analysis,
   CleanOptions,
   ColumnKind,
   ColumnProfile,
-  CsvTable,
+  DataFile,
+  DataTable,
   QualityIssue,
   Severity,
 } from "./lib/types";
@@ -62,7 +63,7 @@ function formatNumber(value: number): string {
   return value.toFixed(2).replace(/0+$/, "").replace(/\.$/, "");
 }
 
-function downloadFile(name: string, content: string, type: string): void {
+function downloadFile(name: string, content: string | ArrayBuffer, type: string): void {
   const blob = new Blob([content], { type });
   const url = URL.createObjectURL(blob);
   const anchor = document.createElement("a");
@@ -73,7 +74,7 @@ function downloadFile(name: string, content: string, type: string): void {
 }
 
 function outputStem(fileName: string): string {
-  return fileName.replace(/\.csv$/i, "").replace(/[^\w-]+/g, "-");
+  return fileName.replace(/\.[^.]+$/, "").replace(/[^\p{L}\p{N}_-]+/gu, "-");
 }
 
 function ScoreDial({ score }: { score: number }) {
@@ -166,15 +167,15 @@ function FilePicker({ onFile, onDemo, compact = false, busy = false }: FilePicke
         ref={inputRef}
         className="sr-only"
         type="file"
-        accept=".csv,text/csv"
-        aria-label="Choose a CSV file"
+        accept={FILE_ACCEPT}
+        aria-label="Choose a data file"
         onChange={handleChange}
       />
       <div className="file-picker__icon" aria-hidden="true">
         <Upload size={compact ? 19 : 23} />
       </div>
       <div className="file-picker__copy">
-        <strong>{compact ? "Replace this CSV" : "Drop a CSV here"}</strong>
+        <strong>{compact ? "Replace this data file" : "Drop a data file here"}</strong>
         <span>{compact ? "Nothing leaves this tab." : "or choose a file up to 12 MB"}</span>
       </div>
       <button
@@ -183,7 +184,7 @@ function FilePicker({ onFile, onDemo, compact = false, busy = false }: FilePicke
         onClick={() => inputRef.current?.click()}
         disabled={busy}
       >
-        {busy ? "Reading…" : compact ? "Choose file" : "Choose CSV"}
+        {busy ? "Reading…" : compact ? "Choose file" : "Choose data file"}
       </button>
       {onDemo && (
         <button className="text-button" type="button" onClick={onDemo} disabled={busy}>
@@ -270,7 +271,7 @@ function Landing({
       <main>
         <section className="hero">
           <div className="hero__copy">
-            <p className="hero__intro">A CSV quality check that runs before analysis does.</p>
+            <p className="hero__intro">A data quality check that runs before analysis does.</p>
             <h1>
               Inspect
               <br />
@@ -307,7 +308,8 @@ function Landing({
           <div className="upload-section__content">
             <h2 id="upload-heading">Start with a file you already have.</h2>
             <p>
-              Your CSV is parsed in this browser. No upload, account, or analytics script involved.
+              CSV, Excel, TSV, JSON, and delimited text are parsed in this browser. No upload
+              involved.
             </p>
             <FilePicker onFile={onFile} onDemo={onDemo} busy={busy} />
             {error && (
@@ -553,13 +555,15 @@ function CleanPanel({
   onOptionsChange,
   onExportCsv,
   onExportReport,
+  exportLabel,
 }: {
-  table: CsvTable;
+  table: DataTable;
   analysis: Analysis;
   options: CleanOptions;
   onOptionsChange: (options: CleanOptions) => void;
   onExportCsv: () => void;
   onExportReport: () => void;
+  exportLabel: string;
 }) {
   const cleanedTable = useMemo(() => cleanTable(table, options), [table, options]);
   const cleanedAnalysis = useMemo(() => analyzeTable(cleanedTable), [cleanedTable]);
@@ -659,7 +663,7 @@ function CleanPanel({
           <div className="export-actions">
             <button className="button button--primary" type="button" onClick={onExportCsv}>
               <Download size={17} />
-              Download clean CSV
+              {exportLabel}
             </button>
             <button className="button button--secondary" type="button" onClick={onExportReport}>
               <FileSpreadsheet size={17} />
@@ -673,40 +677,47 @@ function CleanPanel({
 }
 
 function Report({
-  table,
+  dataFile,
+  sheetIndex,
+  onSheetChange,
   onReset,
   onReplace,
   busy,
 }: {
-  table: CsvTable;
+  dataFile: DataFile;
+  sheetIndex: number;
+  onSheetChange: (index: number) => void;
   onReset: () => void;
   onReplace: (file: File) => void;
   busy: boolean;
 }) {
+  const table = dataFile.sheets[sheetIndex];
   const analysis = useMemo(() => analyzeTable(table), [table]);
   const [cleanOptions, setCleanOptions] = useState<CleanOptions>(initialCleanOptions);
   const scoreLabel = getScoreLabel(analysis.score);
+  const exportLabel = cleanOutputLabel(table);
 
-  function exportCsv() {
-    const cleaned = cleanTable(table, cleanOptions);
-    downloadFile(
-      `${outputStem(table.fileName)}-cleaned.csv`,
-      csvWithBom(Papa.unparse({ fields: cleaned.headers, data: cleaned.rows })),
-      "text/csv;charset=utf-8",
-    );
+  async function exportData() {
+    const cleanFile = await createCleanFile(cleanTable(table, cleanOptions));
+    downloadFile(cleanFile.name, cleanFile.data, cleanFile.mime);
   }
 
   function exportReport() {
     const cleaned = cleanTable(table, cleanOptions);
+    const sheetSuffix = table.sheetName
+      ? `-${table.sheetName.replace(/[^\p{L}\p{N}_-]+/gu, "-")}`
+      : "";
     const report = {
       generatedAt: new Date().toISOString(),
       source: table.fileName,
+      sheet: table.sheetName ?? null,
+      format: table.sourceFormat,
       cleaningRules: cleanOptions,
       original: analysis,
       cleaned: analyzeTable(cleaned),
     };
     downloadFile(
-      `${outputStem(table.fileName)}-quality-report.json`,
+      `${outputStem(table.fileName)}${sheetSuffix}-quality-report.json`,
       JSON.stringify(report, null, 2),
       "application/json",
     );
@@ -726,7 +737,8 @@ function Report({
               </span>
               <h1>{table.fileName}</h1>
               <p>
-                Reviewed at{" "}
+                {table.sourceFormat.toUpperCase()}
+                {table.sheetName ? ` · ${table.sheetName}` : ""} · Reviewed at{" "}
                 {new Intl.DateTimeFormat("en-US", {
                   hour: "numeric",
                   minute: "2-digit",
@@ -735,10 +747,27 @@ function Report({
                 }).format(new Date())}
               </p>
             </div>
-            <button className="button button--quiet" type="button" onClick={onReset}>
-              <RefreshCw size={16} />
-              New file
-            </button>
+            <div className="report-masthead__actions">
+              {dataFile.sheets.length > 1 && (
+                <label className="sheet-picker">
+                  Sheet
+                  <select
+                    value={sheetIndex}
+                    onChange={(event) => onSheetChange(Number(event.target.value))}
+                  >
+                    {dataFile.sheets.map((sheet, index) => (
+                      <option value={index} key={`${sheet.sheetName}-${index}`}>
+                        {sheet.sheetName}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              )}
+              <button className="button button--quiet" type="button" onClick={onReset}>
+                <RefreshCw size={16} />
+                New file
+              </button>
+            </div>
           </div>
 
           <section className="report-section overview-section" id="overview">
@@ -839,8 +868,9 @@ function Report({
             analysis={analysis}
             options={cleanOptions}
             onOptionsChange={setCleanOptions}
-            onExportCsv={exportCsv}
+            onExportCsv={exportData}
             onExportReport={exportReport}
+            exportLabel={exportLabel}
           />
 
           <div className="replace-row">
@@ -862,17 +892,14 @@ function Report({
 }
 
 export default function App() {
-  const [table, setTable] = useState<CsvTable | null>(null);
+  const [dataFile, setDataFile] = useState<DataFile | null>(null);
+  const [sheetIndex, setSheetIndex] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
   async function handleFile(file: File) {
     setError(null);
 
-    if (!file.name.toLowerCase().endsWith(".csv")) {
-      setError("Choose a .csv file. Other spreadsheet formats are not supported yet.");
-      return;
-    }
     if (file.size > MAX_FILE_SIZE) {
       setError("This file is larger than 12 MB. Try a smaller export for the fastest scan.");
       return;
@@ -880,27 +907,31 @@ export default function App() {
 
     setBusy(true);
     try {
-      const text = decodeCsvBytes(await file.arrayBuffer());
-      const parsed = parseCsv(text, file.name);
-      if (parsed.rows.length === 0) {
-        throw new Error("This CSV has headers but no data rows.");
+      const parsed = await parseDataFile(file);
+      if (parsed.sheets.every((sheet) => sheet.rows.length === 0)) {
+        throw new Error("This file has headers but no data rows.");
       }
-      setTable(parsed);
+      setDataFile(parsed);
+      setSheetIndex(0);
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "The CSV could not be read.");
+      setError(cause instanceof Error ? cause.message : "The data file could not be read.");
     } finally {
       setBusy(false);
     }
   }
 
-  if (table) {
+  if (dataFile) {
     return (
       <Report
-        table={table}
+        key={`${dataFile.fileName}-${sheetIndex}`}
+        dataFile={dataFile}
+        sheetIndex={sheetIndex}
+        onSheetChange={setSheetIndex}
         busy={busy}
         onReplace={handleFile}
         onReset={() => {
-          setTable(null);
+          setDataFile(null);
+          setSheetIndex(0);
           setError(null);
         }}
       />
@@ -911,7 +942,11 @@ export default function App() {
     <Landing
       onFile={handleFile}
       onDemo={() => {
-        setTable(parseCsv(sampleCsv, demoTable.fileName));
+        setDataFile({
+          fileName: demoTable.fileName,
+          sheets: [parseCsv(sampleCsv, demoTable.fileName)],
+        });
+        setSheetIndex(0);
         setError(null);
       }}
       error={error}

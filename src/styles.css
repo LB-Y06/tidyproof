@@ -864,6 +864,32 @@ input:focus-visible {
   font-size: 0.77rem;
 }
 
+.report-masthead__actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.sheet-picker {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  color: var(--ink-soft);
+  font-size: 0.7rem;
+  font-weight: 700;
+}
+
+.sheet-picker select {
+  max-width: 170px;
+  min-height: 40px;
+  padding: 0 30px 0 10px;
+  border: 1px solid var(--line-strong);
+  border-radius: 8px;
+  background: var(--paper);
+  color: var(--ink);
+  font-size: 0.75rem;
+}
+
 .report-section {
   padding: 56px 0;
   border-bottom: 1px solid var(--line-strong);
@@ -1813,6 +1839,15 @@ input:focus-visible {
   .report-masthead .button {
     flex: 0 0 auto;
     padding-inline: 11px;
+  }
+
+  .report-masthead__actions {
+    flex-direction: column;
+    align-items: flex-end;
+  }
+
+  .sheet-picker select {
+    max-width: 130px;
   }
 
   .report-section {

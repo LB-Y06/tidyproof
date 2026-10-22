@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { demoTable } from "./demo";
 import { analyzeTable, cleanTable, getScoreLabel } from "./quality";
-import type { CsvTable } from "./types";
+import type { DataTable } from "./types";
 
 describe("analyzeTable", () => {
   it("profiles missing values, duplicates, and type drift", () => {
@@ -21,8 +21,9 @@ describe("analyzeTable", () => {
   });
 
   it("detects an empty column", () => {
-    const table: CsvTable = {
+    const table: DataTable = {
       fileName: "small.csv",
+      sourceFormat: "csv",
       headers: ["name", "notes"],
       rows: [
         ["Ada", ""],
@@ -36,8 +37,9 @@ describe("analyzeTable", () => {
   });
 
   it("detects numeric outliers using the IQR rule", () => {
-    const table: CsvTable = {
+    const table: DataTable = {
       fileName: "values.csv",
+      sourceFormat: "csv",
       headers: ["value"],
       rows: [["1"], ["2"], ["2"], ["3"], ["3"], ["4"], ["100"]],
     };
@@ -49,8 +51,9 @@ describe("analyzeTable", () => {
 
 describe("cleanTable", () => {
   it("trims whitespace, removes duplicates, and drops empty columns", () => {
-    const table: CsvTable = {
+    const table: DataTable = {
       fileName: "dirty.csv",
+      sourceFormat: "csv",
       headers: ["name", "empty"],
       rows: [
         [" Ada ", ""],

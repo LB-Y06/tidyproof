@@ -1,7 +1,7 @@
 {
   "name": "TidyProof",
   "short_name": "TidyProof",
-  "description": "Inspect CSV quality before analysis.",
+  "description": "Inspect CSV, Excel, TSV, and JSON quality before analysis.",
   "start_url": "./",
   "display": "standalone",
   "background_color": "#edf2e9",

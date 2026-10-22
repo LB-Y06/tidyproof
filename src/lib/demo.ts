@@ -1,4 +1,4 @@
-import type { CsvTable } from "./types";
+import type { DataTable } from "./types";
 
 const sampleRows = [
   ["A-1042", "Maya Chen", "north", "2026-08-14", "$128.40", "3", "maia@example.com", ""],
@@ -15,8 +15,9 @@ const sampleRows = [
   ["A-1052", "Kai Williams", "west", "not provided", "$0.00", "0", "kai@example.com", ""],
 ];
 
-export const demoTable: CsvTable = {
+export const demoTable: DataTable = {
   fileName: "orders_export_august.csv",
+  sourceFormat: "csv",
   headers: ["order_id", "customer", "region", "ordered_at", "order_value", "quantity", "email", "segment"],
   rows: sampleRows,
 };

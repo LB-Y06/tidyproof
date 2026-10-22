@@ -3,7 +3,7 @@ import type {
   CleanOptions,
   ColumnKind,
   ColumnProfile,
-  CsvTable,
+  DataTable,
   NumericSummary,
   QualityIssue,
 } from "./types";
@@ -105,7 +105,7 @@ function rowKey(row: string[]): string {
   return row.map((cell) => cell.trim()).join("\u001f");
 }
 
-export function analyzeTable(table: CsvTable): Analysis {
+export function analyzeTable(table: DataTable): Analysis {
   const rowCount = table.rows.length;
   const columnCount = table.headers.length;
   const cellCount = rowCount * columnCount;
@@ -251,7 +251,7 @@ export function analyzeTable(table: CsvTable): Analysis {
   };
 }
 
-export function cleanTable(table: CsvTable, options: CleanOptions): CsvTable {
+export function cleanTable(table: DataTable, options: CleanOptions): DataTable {
   let headers = [...table.headers];
   let rows = table.rows.map((row) =>
     row.map((cell) => (options.trimWhitespace ? cell.trim() : cell)),

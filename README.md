@@ -2,11 +2,11 @@
 
 [![Tests](https://github.com/LB-Y06/tidyproof/actions/workflows/deploy.yml/badge.svg)](https://github.com/LB-Y06/tidyproof/actions/workflows/deploy.yml)
 
-**A private, browser-based quality check for messy CSV files.**
+**A private, browser-based quality check for messy tabular data.**
 
 [Live demo](https://lb-y06.github.io/tidyproof/) · [Source code](https://github.com/LB-Y06/tidyproof)
 
-TidyProof profiles a CSV before it reaches a spreadsheet, notebook, or dashboard. It finds missing values, duplicate rows, type drift, empty or constant columns, and numeric outliers, then produces a cleaned file and machine-readable quality report.
+TidyProof profiles a data file before it reaches a spreadsheet, notebook, or dashboard. It finds missing values, duplicate rows, type drift, empty or constant columns, and numeric outliers, then produces a cleaned file and machine-readable quality report.
 
 No server, account, upload, or analytics script is involved. Parsing and analysis happen inside the browser tab.
 
@@ -15,11 +15,13 @@ No server, account, upload, or analytics script is involved. Parsing and analysi
 ## What it does
 
 - Profiles every column and infers `number`, `date`, `boolean`, `text`, or `empty`.
+- Reads `.csv`, `.tsv`, `.txt`, `.json`, `.xlsx`, `.xls`, `.xlsm`, `.xlsb`, and `.ods` files.
+- Keeps Excel worksheets separate and provides a sheet selector for multi-sheet workbooks.
 - Calculates completeness, uniqueness, and consistency, then combines them into a 100-point quality score.
 - Flags exact duplicate rows, high missingness, constant columns, inconsistent value types, and IQR outliers.
 - Shows the actual presence pattern for the first 20 rows in each column.
 - Applies cleaning rules in a visible order: trim whitespace, remove duplicates, drop empty columns, and optionally remove incomplete rows.
-- Exports a cleaned CSV and a JSON report containing the original analysis, cleaning settings, and post-cleaning analysis.
+- Exports cleaned CSV, TSV, JSON, or XLSX in the same general format as the source, plus a JSON report containing the original analysis, cleaning settings, and post-cleaning analysis.
 - Works offline after the first visit through a service worker.
 - Detects UTF-8, GB18030, and BOM-marked UTF-16 CSV input, then exports UTF-8 with a BOM for Excel compatibility.
 - Includes responsive layouts, keyboard focus states, semantic tables, and reduced-motion support.
@@ -43,7 +45,7 @@ npm install
 npm run dev
 ```
 
-Open `http://localhost:5173`. Choose a CSV or use the included sample.
+Open `http://localhost:5173`. Choose a supported file or use the included sample.
 
 ## Verify
 
@@ -52,7 +54,7 @@ npm test
 npm run build
 ```
 
-The test suite covers CSV parsing edge cases, duplicate headers, type inference, missingness, IQR outliers, cleaning rules, score labeling, and the end-to-end sample report flow.
+The test suite covers text encoding, CSV parsing edge cases, duplicate headers, JSON normalization, multi-sheet Excel parsing with Chinese values, Excel round trips, type inference, missingness, IQR outliers, cleaning rules, score labeling, and the end-to-end sample report flow.
 
 ## Engineering notes
 
@@ -60,7 +62,8 @@ The quality engine is separated from the React interface:
 
 ```text
 src/lib/
-  csv.ts        CSV normalization and parsing
+  files.ts      format detection, Excel/JSON parsing, and format-aware export
+  csv.ts        delimited-text decoding, normalization, and parsing
   quality.ts    profiling, scoring, issue detection, cleaning
   demo.ts       deterministic sample dataset
 ```
@@ -77,8 +80,9 @@ Outliers are reported for review but are never removed automatically. Likewise, 
 
 ## Privacy and limits
 
-- Files are limited to 12 MB in the UI.
-- Only `.csv` files are accepted; XLSX and delimiter inference for non-CSV files are out of scope.
+- Files are limited to 12 MB in the browser.
+- Excel is read from stored cell values. Formulas are not recalculated, and cleaned Excel exports contain data rather than the source workbook's formatting, charts, or formulas.
+- PDF, image, XML, and statistical-package files are not treated as tabular input because they need format-specific extraction rules.
 - Text columns are intentionally inferred broadly, so business rules still need human review.
 - `localStorage` is not used, so refreshing the page clears the active report.
 

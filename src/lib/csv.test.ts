@@ -21,6 +21,17 @@ describe("parseCsv", () => {
     expect(table.headers).toEqual(["name", "name_2", "column_3"]);
   });
 
+  it("parses tab-separated values with the selected delimiter", () => {
+    const table = parseCsv("city\tpopulation\n北京\t2189\n", "cities.tsv", {
+      delimiter: "\t",
+      sourceFormat: "tsv",
+    });
+
+    expect(table.headers).toEqual(["city", "population"]);
+    expect(table.rows).toEqual([["北京", "2189"]]);
+    expect(table.sourceFormat).toBe("tsv");
+  });
+
   it("rejects an empty file", () => {
     expect(() => parseCsv("\n\n")).toThrow("does not contain any rows");
   });

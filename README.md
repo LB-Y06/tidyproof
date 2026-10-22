@@ -21,6 +21,7 @@ No server, account, upload, or analytics script is involved. Parsing and analysi
 - Applies cleaning rules in a visible order: trim whitespace, remove duplicates, drop empty columns, and optionally remove incomplete rows.
 - Exports a cleaned CSV and a JSON report containing the original analysis, cleaning settings, and post-cleaning analysis.
 - Works offline after the first visit through a service worker.
+- Detects UTF-8, GB18030, and BOM-marked UTF-16 CSV input, then exports UTF-8 with a BOM for Excel compatibility.
 - Includes responsive layouts, keyboard focus states, semantic tables, and reduced-motion support.
 
 ## Report view

@@ -29,7 +29,7 @@ import {
   type DragEvent,
   type ReactNode,
 } from "react";
-import { parseCsv } from "./lib/csv";
+import { csvWithBom, decodeCsvBytes, parseCsv } from "./lib/csv";
 import { demoTable, sampleCsv } from "./lib/demo";
 import { analyzeTable, cleanTable, getScoreLabel } from "./lib/quality";
 import type {
@@ -691,7 +691,7 @@ function Report({
     const cleaned = cleanTable(table, cleanOptions);
     downloadFile(
       `${outputStem(table.fileName)}-cleaned.csv`,
-      Papa.unparse({ fields: cleaned.headers, data: cleaned.rows }),
+      csvWithBom(Papa.unparse({ fields: cleaned.headers, data: cleaned.rows })),
       "text/csv;charset=utf-8",
     );
   }
@@ -880,7 +880,7 @@ export default function App() {
 
     setBusy(true);
     try {
-      const text = await file.text();
+      const text = decodeCsvBytes(await file.arrayBuffer());
       const parsed = parseCsv(text, file.name);
       if (parsed.rows.length === 0) {
         throw new Error("This CSV has headers but no data rows.");

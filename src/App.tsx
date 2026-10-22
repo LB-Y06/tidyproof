@@ -2,6 +2,7 @@ import {
   AlertTriangle,
   ArrowDown,
   ArrowRight,
+  ChartColumn,
   Check,
   CheckCircle2,
   Columns3,
@@ -10,6 +11,8 @@ import {
   Github,
   Info,
   LockKeyhole,
+  ListChecks,
+  Plus,
   RefreshCw,
   Rows3,
   ScanLine,
@@ -28,18 +31,26 @@ import {
   type DragEvent,
   type ReactNode,
 } from "react";
+import {
+  buildDataAnalysis,
+  type ColumnAnalysis,
+  type DataAnalysis,
+} from "./lib/analysis";
 import { parseCsv } from "./lib/csv";
 import { demoTable, sampleCsv } from "./lib/demo";
 import { FILE_ACCEPT, cleanOutputLabel, createCleanFile, parseDataFile } from "./lib/files";
 import { analyzeTable, cleanTable, getScoreLabel } from "./lib/quality";
+import { validateRules } from "./lib/rules";
 import type {
   Analysis,
   CleanOptions,
   ColumnKind,
   ColumnProfile,
   DataFile,
+  DataRule,
   DataTable,
   QualityIssue,
+  RuleOperator,
   Severity,
 } from "./lib/types";
 
@@ -361,7 +372,7 @@ function Landing({
   );
 }
 
-function SideRail({ analysis }: { analysis: Analysis }) {
+function SideRail({ analysis, rulesCount }: { analysis: Analysis; rulesCount: number }) {
   return (
     <aside className="side-rail" aria-label="Report navigation">
       <div className="side-rail__label">Report</div>
@@ -380,8 +391,17 @@ function SideRail({ analysis }: { analysis: Analysis }) {
           Columns
           <em>{analysis.columnCount}</em>
         </a>
-        <a href="#clean">
+        <a href="#analysis">
           <span>04</span>
+          Analysis
+        </a>
+        <a href="#rules">
+          <span>05</span>
+          Rules
+          {rulesCount > 0 && <em>{rulesCount}</em>}
+        </a>
+        <a href="#clean">
+          <span>06</span>
           Clean & export
         </a>
       </nav>
@@ -516,6 +536,466 @@ function ColumnSpecimen({ column }: { column: ColumnProfile }) {
   );
 }
 
+function ShiftMetric({
+  label,
+  before,
+  after,
+  format = (value) => numberFormat.format(value),
+  lowerIsBetter = true,
+  neutral = false,
+}: {
+  label: string;
+  before: number;
+  after: number;
+  format?: (value: number) => string;
+  lowerIsBetter?: boolean;
+  neutral?: boolean;
+}) {
+  const difference = after - before;
+  const improved = lowerIsBetter ? difference < 0 : difference > 0;
+  const worsened = lowerIsBetter ? difference > 0 : difference < 0;
+  const state = neutral ? "unchanged" : improved ? "improved" : worsened ? "worsened" : "unchanged";
+
+  return (
+    <div className={`shift-metric shift-metric--${state}`}>
+      <span>{label}</span>
+      <div>
+        <small>{format(before)}</small>
+        <ArrowRight size={14} />
+        <strong>{format(after)}</strong>
+      </div>
+    </div>
+  );
+}
+
+function DistributionComparison({
+  before,
+  after,
+}: {
+  before: ColumnAnalysis;
+  after?: ColumnAnalysis;
+}) {
+  if (before.histogram && before.histogram.length > 0) {
+    const maximum = Math.max(
+      1,
+      ...before.histogram.map((bin) => bin.count),
+      ...(after?.histogram ?? []).map((bin) => bin.count),
+    );
+    return (
+      <div className="mirror-chart" aria-label={`${before.name} distribution before and after cleaning`}>
+        <div className="mirror-chart__head" aria-hidden="true">
+          <span>Before</span>
+          <span>Value range</span>
+          <span>After</span>
+        </div>
+        {before.histogram.map((bin, index) => {
+          const afterBin = after?.histogram?.[index];
+          return (
+            <div className="mirror-chart__row" key={`${bin.from}-${bin.to}`}>
+              <span className="mirror-chart__before">
+                <b style={{ width: `${(bin.count / maximum) * 100}%` }} />
+                <em>{bin.count}</em>
+              </span>
+              <span className="mirror-chart__label">{bin.label}</span>
+              <span className="mirror-chart__after">
+                <em>{afterBin?.count ?? 0}</em>
+                <b style={{ width: `${((afterBin?.count ?? 0) / maximum) * 100}%` }} />
+              </span>
+            </div>
+          );
+        })}
+      </div>
+    );
+  }
+
+  const labels = Array.from(
+    new Set([
+      ...(before.categories ?? []).map((item) => item.label),
+      ...(after?.categories ?? []).map((item) => item.label),
+    ]),
+  ).slice(0, 6);
+  const maximum = Math.max(
+    1,
+    ...(before.categories ?? []).map((item) => item.count),
+    ...(after?.categories ?? []).map((item) => item.count),
+  );
+
+  if (labels.length === 0) {
+    return <p className="distribution-empty">No populated values to visualize.</p>;
+  }
+
+  return (
+    <div className="category-compare" aria-label={`${before.name} frequency comparison`}>
+      <div className="category-compare__head">
+        <span>Most frequent</span>
+        <span>Before</span>
+        <span>After</span>
+      </div>
+      {labels.map((label) => {
+        const beforeCount = before.categories?.find((item) => item.label === label)?.count ?? 0;
+        const afterCount = after?.categories?.find((item) => item.label === label)?.count ?? 0;
+        return (
+          <div className="category-compare__row" key={label}>
+            <span title={label}>{label}</span>
+            <span className="frequency-track frequency-track--before">
+              <b style={{ width: `${(beforeCount / maximum) * 100}%` }} />
+              <em>{beforeCount}</em>
+            </span>
+            <span className="frequency-track frequency-track--after">
+              <b style={{ width: `${(afterCount / maximum) * 100}%` }} />
+              <em>{afterCount}</em>
+            </span>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+function AnalysisSection({
+  beforeTable,
+  beforeProfile,
+  afterTable,
+  afterProfile,
+}: {
+  beforeTable: DataTable;
+  beforeProfile: Analysis;
+  afterTable: DataTable;
+  afterProfile: Analysis;
+}) {
+  const before = useMemo(
+    () => buildDataAnalysis(beforeTable, beforeProfile),
+    [beforeTable, beforeProfile],
+  );
+  const after = useMemo(
+    () => buildDataAnalysis(afterTable, afterProfile, before),
+    [afterTable, afterProfile, before],
+  );
+  const afterColumns = new Map(after.columns.map((column) => [column.name, column]));
+  const typeSummary = Object.entries(before.typeCounts)
+    .filter(([, count]) => count > 0)
+    .map(([kind, count]) => `${count} ${kindLabels[kind as ColumnKind].toLowerCase()}`)
+    .join(", ");
+
+  return (
+    <section className="report-section analysis-section" id="analysis">
+      <div className="section-heading">
+        <div>
+          <span className="section-heading__index">04</span>
+          <h2>Before and after analysis</h2>
+        </div>
+        <p>
+          Distributions use the cleaning rules selected below. Both sides share the same scale.
+        </p>
+      </div>
+
+      <div className="shift-ledger">
+        <ShiftMetric label="Rows" before={before.rowCount} after={after.rowCount} neutral />
+        <ShiftMetric
+          label="Missing cells"
+          before={before.missingPct}
+          after={after.missingPct}
+          format={(value) => `${value.toFixed(1)}%`}
+        />
+        <ShiftMetric
+          label="Duplicate rows"
+          before={before.duplicateRows}
+          after={after.duplicateRows}
+        />
+        <ShiftMetric
+          label="IQR outliers"
+          before={before.outlierCount}
+          after={after.outlierCount}
+        />
+        <ShiftMetric
+          label="Quality score"
+          before={before.score}
+          after={after.score}
+          lowerIsBetter={false}
+        />
+      </div>
+
+      <div className="analysis-intro">
+        <div>
+          <ChartColumn size={18} />
+          <span>
+            <strong>Column distributions</strong>
+            {before.columnCount} columns · {typeSummary}
+          </span>
+        </div>
+        <div className="analysis-legend" aria-label="Chart legend">
+          <span>
+            <i className="legend-before" />
+            Before
+          </span>
+          <span>
+            <i className="legend-after" />
+            After
+          </span>
+        </div>
+      </div>
+
+      <div className="analysis-canvas">
+        {before.columns.map((column) => {
+          const afterColumn = afterColumns.get(column.name);
+          return (
+            <article className="distribution-row" key={column.name}>
+              <div className="distribution-row__title">
+                <div>
+                  <h3>{column.name}</h3>
+                  <span className="type-pill">{kindLabels[column.kind]}</span>
+                </div>
+                <span>
+                  {column.uniqueCount} distinct · {column.missingPct.toFixed(1)}% missing
+                </span>
+              </div>
+              <DistributionComparison before={column} after={afterColumn} />
+            </article>
+          );
+        })}
+      </div>
+    </section>
+  );
+}
+
+const ruleOperatorLabels: Record<RuleOperator, string> = {
+  required: "Must be filled",
+  unique: "Must be unique",
+  min: "Minimum value",
+  max: "Maximum value",
+  allowed: "Allowed values",
+  pattern: "Matches regex",
+};
+
+function RulesSection({
+  table,
+  analysis,
+  cleanedTable,
+  rules,
+  onRulesChange,
+}: {
+  table: DataTable;
+  analysis: Analysis;
+  cleanedTable: DataTable;
+  rules: DataRule[];
+  onRulesChange: (rules: DataRule[]) => void;
+}) {
+  const [columnIndex, setColumnIndex] = useState(0);
+  const [operator, setOperator] = useState<RuleOperator>("required");
+  const [value, setValue] = useState("");
+  const [error, setError] = useState("");
+  const selectedColumn = table.headers[columnIndex] ?? table.headers[0];
+  const kind = analysis.columns[columnIndex]?.kind ?? "text";
+  const availableOperators: RuleOperator[] = [
+    "required",
+    "unique",
+    ...(kind === "number" ? (["min", "max"] as RuleOperator[]) : []),
+    "allowed",
+    "pattern",
+  ];
+  const beforeResult = useMemo(() => validateRules(table, rules), [table, rules]);
+  const afterResult = useMemo(
+    () => validateRules(cleanedTable, rules),
+    [cleanedTable, rules],
+  );
+
+  function addRule() {
+    const nextOperator = availableOperators.includes(operator) ? operator : "required";
+    if (!selectedColumn) return;
+
+    if (["min", "max"].includes(nextOperator) && !Number.isFinite(Number(value))) {
+      setError("Enter a numeric limit.");
+      return;
+    }
+    if (nextOperator === "allowed" && !value.trim()) {
+      setError("Enter at least one allowed value.");
+      return;
+    }
+    if (nextOperator === "pattern") {
+      try {
+        new RegExp(value);
+      } catch {
+        setError("Enter a valid regular expression.");
+        return;
+      }
+    }
+
+    onRulesChange([
+      ...rules,
+      {
+        id: `rule-${Date.now()}-${rules.length}`,
+        columnName: selectedColumn,
+        operator: nextOperator,
+        value: value.trim(),
+      },
+    ]);
+    setValue("");
+    setError("");
+  }
+
+  const needsValue = !["required", "unique"].includes(operator);
+  const selectedKind = kindLabels[kind].toLowerCase();
+
+  return (
+    <section className="report-section rules-section" id="rules">
+      <div className="section-heading">
+        <div>
+          <span className="section-heading__index">05</span>
+          <h2>Validation rules</h2>
+        </div>
+        <p>Add business rules beyond structural checks. Violations point to exact rows.</p>
+      </div>
+
+      <div className="rules-layout">
+        <div className="rule-builder">
+          <div className="rule-builder__title">
+            <ListChecks size={18} />
+            <div>
+              <strong>Add a rule</strong>
+              <span>{rules.length} active</span>
+            </div>
+          </div>
+          <label>
+            Column
+            <select
+              value={columnIndex}
+              onChange={(event) => {
+                setColumnIndex(Number(event.target.value));
+                setOperator("required");
+                setValue("");
+                setError("");
+              }}
+            >
+              {table.headers.map((header, index) => (
+                <option value={index} key={header}>
+                  {header}
+                </option>
+              ))}
+            </select>
+          </label>
+          <div className="rule-builder__meta">Detected as {selectedKind}</div>
+          <label>
+            Rule
+            <select
+              value={availableOperators.includes(operator) ? operator : "required"}
+              onChange={(event) => {
+                setOperator(event.target.value as RuleOperator);
+                setValue("");
+                setError("");
+              }}
+            >
+              {availableOperators.map((item) => (
+                <option value={item} key={item}>
+                  {ruleOperatorLabels[item]}
+                </option>
+              ))}
+            </select>
+          </label>
+          {needsValue && (
+            <label>
+              Condition
+              <input
+                value={value}
+                onChange={(event) => setValue(event.target.value)}
+                placeholder={
+                  operator === "allowed"
+                    ? "paid, pending, refunded"
+                    : operator === "pattern"
+                      ? "^[^@]+@[^@]+\\.[^@]+$"
+                      : "0"
+                }
+              />
+            </label>
+          )}
+          {error && (
+            <div className="rule-builder__error" role="alert">
+              {error}
+            </div>
+          )}
+          <button className="button button--dark" type="button" onClick={addRule}>
+            <Plus size={16} />
+            Add rule
+          </button>
+        </div>
+
+        <div className="rule-results">
+          <div className="rule-summary">
+            <div>
+              <span>Before cleaning</span>
+              <strong>{beforeResult.violations.length}</strong>
+              <small>violations</small>
+            </div>
+            <ArrowRight size={22} />
+            <div>
+              <span>After cleaning</span>
+              <strong>{afterResult.violations.length}</strong>
+              <small>violations</small>
+            </div>
+          </div>
+          {afterResult.missingColumns.length > 0 && (
+            <p className="rule-note">
+              Removed columns were skipped after cleaning: {afterResult.missingColumns.join(", ")}.
+            </p>
+          )}
+          {rules.length === 0 ? (
+            <div className="rule-empty">
+              <ListChecks size={24} />
+              <div>
+                <strong>No business rules yet</strong>
+                <p>Start with a unique identifier, required field, numeric range, or allowed list.</p>
+              </div>
+            </div>
+          ) : (
+            <>
+              <div className="rule-list">
+                {rules.map((rule, index) => (
+                  <div className="rule-row" key={rule.id}>
+                    <span>{String(index + 1).padStart(2, "0")}</span>
+                    <div>
+                      <strong>{rule.columnName}</strong>
+                      <p>
+                        {ruleOperatorLabels[rule.operator]}
+                        {rule.value ? `: ${rule.value}` : ""}
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      aria-label={`Remove rule for ${rule.columnName}`}
+                      onClick={() => onRulesChange(rules.filter((item) => item.id !== rule.id))}
+                    >
+                      <X size={16} />
+                    </button>
+                  </div>
+                ))}
+              </div>
+              {beforeResult.violations.length > 0 && (
+                <div className="violation-list">
+                  {beforeResult.violations.slice(0, 8).map((violation, index) => (
+                    <div
+                      className="violation-row"
+                      key={`${violation.ruleId}-${violation.rowIndex}-${index}`}
+                    >
+                      <span>Row {violation.rowIndex + 2}</span>
+                      <strong>{violation.columnName}</strong>
+                      <p>{violation.message}</p>
+                      <code>{violation.value || "(blank)"}</code>
+                    </div>
+                  ))}
+                  {beforeResult.violations.length > 8 && (
+                    <p className="violation-more">
+                      +{beforeResult.violations.length - 8} more violations in the quality report.
+                    </p>
+                  )}
+                </div>
+              )}
+            </>
+          )}
+        </div>
+      </div>
+    </section>
+  );
+}
+
 function Toggle({
   checked,
   onChange,
@@ -551,6 +1031,8 @@ function Toggle({
 function CleanPanel({
   table,
   analysis,
+  cleanedTable,
+  cleanedAnalysis,
   options,
   onOptionsChange,
   onExportCsv,
@@ -559,14 +1041,14 @@ function CleanPanel({
 }: {
   table: DataTable;
   analysis: Analysis;
+  cleanedTable: DataTable;
+  cleanedAnalysis: Analysis;
   options: CleanOptions;
   onOptionsChange: (options: CleanOptions) => void;
   onExportCsv: () => void;
   onExportReport: () => void;
   exportLabel: string;
 }) {
-  const cleanedTable = useMemo(() => cleanTable(table, options), [table, options]);
-  const cleanedAnalysis = useMemo(() => analyzeTable(cleanedTable), [cleanedTable]);
   const changedRows = table.rows.length - cleanedTable.rows.length;
   const changedColumns = table.headers.length - cleanedTable.headers.length;
 
@@ -578,7 +1060,7 @@ function CleanPanel({
     <section className="report-section clean-section" id="clean">
       <div className="section-heading">
         <div>
-          <span className="section-heading__index">04</span>
+          <span className="section-heading__index">06</span>
           <h2>Clean, then export</h2>
         </div>
         <p>Rules are applied in order. Review the before and after before downloading.</p>
@@ -694,19 +1176,23 @@ function Report({
   const table = dataFile.sheets[sheetIndex];
   const analysis = useMemo(() => analyzeTable(table), [table]);
   const [cleanOptions, setCleanOptions] = useState<CleanOptions>(initialCleanOptions);
+  const [rules, setRules] = useState<DataRule[]>([]);
+  const cleanedTable = useMemo(() => cleanTable(table, cleanOptions), [table, cleanOptions]);
+  const cleanedAnalysis = useMemo(() => analyzeTable(cleanedTable), [cleanedTable]);
   const scoreLabel = getScoreLabel(analysis.score);
   const exportLabel = cleanOutputLabel(table);
 
   async function exportData() {
-    const cleanFile = await createCleanFile(cleanTable(table, cleanOptions));
+    const cleanFile = await createCleanFile(cleanedTable);
     downloadFile(cleanFile.name, cleanFile.data, cleanFile.mime);
   }
 
   function exportReport() {
-    const cleaned = cleanTable(table, cleanOptions);
     const sheetSuffix = table.sheetName
       ? `-${table.sheetName.replace(/[^\p{L}\p{N}_-]+/gu, "-")}`
       : "";
+    const beforeAnalysis = buildDataAnalysis(table, analysis);
+    const afterAnalysis = buildDataAnalysis(cleanedTable, cleanedAnalysis, beforeAnalysis);
     const report = {
       generatedAt: new Date().toISOString(),
       source: table.fileName,
@@ -714,7 +1200,16 @@ function Report({
       format: table.sourceFormat,
       cleaningRules: cleanOptions,
       original: analysis,
-      cleaned: analyzeTable(cleaned),
+      cleaned: cleanedAnalysis,
+      customRules: rules,
+      customRuleResults: {
+        before: validateRules(table, rules),
+        after: validateRules(cleanedTable, rules),
+      },
+      dataAnalysis: {
+        before: beforeAnalysis,
+        after: afterAnalysis,
+      },
     };
     downloadFile(
       `${outputStem(table.fileName)}${sheetSuffix}-quality-report.json`,
@@ -727,7 +1222,7 @@ function Report({
     <div id="top" className="report-shell">
       <AppHeader compact />
       <div className="report-grid">
-        <SideRail analysis={analysis} />
+        <SideRail analysis={analysis} rulesCount={rules.length} />
         <main className="report-main">
           <div className="report-masthead">
             <div>
@@ -863,9 +1358,26 @@ function Report({
             </div>
           </section>
 
+          <AnalysisSection
+            beforeTable={table}
+            beforeProfile={analysis}
+            afterTable={cleanedTable}
+            afterProfile={cleanedAnalysis}
+          />
+
+          <RulesSection
+            table={table}
+            analysis={analysis}
+            cleanedTable={cleanedTable}
+            rules={rules}
+            onRulesChange={setRules}
+          />
+
           <CleanPanel
             table={table}
             analysis={analysis}
+            cleanedTable={cleanedTable}
+            cleanedAnalysis={cleanedAnalysis}
             options={cleanOptions}
             onOptionsChange={setCleanOptions}
             onExportCsv={exportData}

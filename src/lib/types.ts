@@ -70,3 +70,27 @@ export interface CleanOptions {
   dropEmptyColumns: boolean;
   removeIncompleteRows: boolean;
 }
+
+export type RuleOperator = "required" | "unique" | "min" | "max" | "allowed" | "pattern";
+
+export interface DataRule {
+  id: string;
+  columnName: string;
+  operator: RuleOperator;
+  value: string;
+}
+
+export interface RuleViolation {
+  ruleId: string;
+  columnName: string;
+  rowIndex: number;
+  value: string;
+  message: string;
+}
+
+export interface RuleResult {
+  ruleCount: number;
+  checkedRows: number;
+  violations: RuleViolation[];
+  missingColumns: string[];
+}

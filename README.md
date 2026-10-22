@@ -20,6 +20,9 @@ No server, account, upload, or analytics script is involved. Parsing and analysi
 - Calculates completeness, uniqueness, and consistency, then combines them into a 100-point quality score.
 - Flags exact duplicate rows, high missingness, constant columns, inconsistent value types, and IQR outliers.
 - Shows the actual presence pattern for the first 20 rows in each column.
+- Compares numeric histograms and category frequencies before and after cleaning on a shared scale.
+- Supports custom validation rules for required fields, unique values, numeric ranges, allowed lists, and regular expressions.
+- Locates custom-rule violations by spreadsheet row number and shows how cleaning affects the violation count.
 - Applies cleaning rules in a visible order: trim whitespace, remove duplicates, drop empty columns, and optionally remove incomplete rows.
 - Exports cleaned CSV, TSV, JSON, or XLSX in the same general format as the source, plus a JSON report containing the original analysis, cleaning settings, and post-cleaning analysis.
 - Works offline after the first visit through a service worker.
@@ -29,6 +32,10 @@ No server, account, upload, or analytics script is involved. Parsing and analysi
 ## Report view
 
 ![TidyProof quality report](docs/tidyproof-report.png)
+
+## Before and after analysis
+
+![TidyProof before and after analysis](docs/tidyproof-analysis.png)
 
 ## Stack
 
@@ -65,10 +72,12 @@ src/lib/
   files.ts      format detection, Excel/JSON parsing, and format-aware export
   csv.ts        delimited-text decoding, normalization, and parsing
   quality.ts    profiling, scoring, issue detection, cleaning
+  analysis.ts   shared-scale distributions and before/after analysis
+  rules.ts      row-level custom validation rules
   demo.ts       deterministic sample dataset
 ```
 
-The functions in `quality.ts` are pure and testable without a browser. The UI consumes their output and keeps credentials, uploads, and persistent user data out of the architecture entirely.
+The quality, analysis, and rule functions are pure and testable without a browser. The UI consumes their output and keeps credentials, uploads, and persistent user data out of the architecture entirely.
 
 The quality score uses three explainable inputs:
 

@@ -1,4 +1,4 @@
-const CACHE_NAME = "tidyproof-v1";
+const CACHE_NAME = "tidyproof-v2";
 const APP_SHELL = ["./", "./index.html", "./manifest.webmanifest", "./tidyproof-mark.svg"];
 
 self.addEventListener("install", (event) => {
@@ -22,15 +22,31 @@ self.addEventListener("fetch", (event) => {
     return;
   }
 
+  if (event.request.mode === "navigate") {
+    event.respondWith(
+      fetch(event.request)
+        .then((response) => {
+          if (response.ok) {
+            const copy = response.clone();
+            caches.open(CACHE_NAME).then((cache) => cache.put(event.request, copy));
+          }
+          return response;
+        })
+        .catch(async () => (await caches.match(event.request)) || caches.match("./index.html")),
+    );
+    return;
+  }
+
   event.respondWith(
-    caches.match(event.request).then(
-      (cached) =>
-        cached ||
-        fetch(event.request).then((response) => {
+    caches.match(event.request).then((cached) => {
+      const network = fetch(event.request).then((response) => {
+        if (response.ok) {
           const copy = response.clone();
           caches.open(CACHE_NAME).then((cache) => cache.put(event.request, copy));
-          return response;
-        }),
-    ),
+        }
+        return response;
+      });
+      return cached || network;
+    }),
   );
 });
